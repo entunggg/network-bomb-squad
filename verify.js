@@ -1,0 +1,11 @@
+const fs=require('fs');const assert=require('assert');const path=require('path');
+for(const f of ['package.json','server.js','render.yaml','public/index.html','public/styles.css','public/app.js','README.md'])assert(fs.existsSync(path.join(__dirname,f)),`Missing ${f}`);
+const server=fs.readFileSync(path.join(__dirname,'server.js'),'utf8');
+const html=fs.readFileSync(path.join(__dirname,'public/index.html'),'utf8');
+const client=fs.readFileSync(path.join(__dirname,'public/app.js'),'utf8');
+assert(server.includes("const MAX_PLAYERS = 120"));assert(server.includes("socket.on('player:answer'"));assert(server.includes("const delta = correct ? 500 + bonus : -100"));
+assert((server.match(/correct: '/g)||[]).length===3);
+for (const id of ['landing','game','joinCode','nickname','startBtn','countdown','playerList','missionPanel','options','feedback'])assert(html.includes(`id="${id}"`),`Missing ui ${id}`);
+for(const event of ['host:create','host:resume','player:join','host:start','host:next','host:reset','player:answer','room:update'])assert(server.includes(event),`Missing event ${event}`);
+for(const event of ['host:create','host:resume','player:join','host:start','host:next','host:reset','player:answer','room:update'])assert(client.includes(event),`Missing client ${event}`);
+console.log('PASS: 7 project files exist, 3 rounds configured, core server/client events and UI IDs present.');

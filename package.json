@@ -1,0 +1,23 @@
+{
+  "name": "broadcast-storm-bomb-squad",
+  "version": "1.0.0",
+  "private": true,
+  "description": "多人即時廣播風暴拆彈教室遊戲",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node verify.js && node --test tests/realtime.test.js",
+    "test:browser": "playwright test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "socket.io-client": "^4.8.4"
+  }
+}

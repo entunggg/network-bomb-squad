@@ -1,0 +1,28 @@
+# Dependencies and package-manager caches
+node_modules/
+.npm-cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.codex/
+.agents/
+.aws/
+
+# Test output and runtime logs
+test-results/
+playwright-report/
+coverage/
+*.log
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

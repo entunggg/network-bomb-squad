@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071526"><meta name="description" content="廣播風暴：全班多人即時網路拆彈遊戲，搶救 Layer 2 Loop 與 RSTP 備援！">
+<title>NETWORK BOMB SQUAD｜廣播風暴拆彈行動</title>
+<link rel="stylesheet" href="/styles.css"><script src="/socket.io/socket.io.js" defer></script><script src="/app.js" defer></script>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="topbar"><div class="brand"><div class="brand-icon">✳</div><div><b>NET<span class="neon">//</span>BOMB SQUAD</b><small>第十二組・廣播風暴實戰</small></div></div><div id="connection" class="status"><i></i><span>連線中</span></div></header>
+<main id="app" class="main">
+  <section id="landing" class="landing panel">
+    <div class="eyebrow">⚡ CLASSROOM LIVE MISSION / MULTIPLAYER</div>
+    <div class="hero-grid"><div><h1>網路<span>拆彈</span><br>倒數行動</h1><p class="lead">交換器陷入迴圈，廣播封包正在失控。<br>你有辦法在全班倒數結束前拯救網路嗎？</p><div class="chips"><span>3 關危機</span><span>限時拆彈</span><span>即時排行榜</span></div></div><div class="hero-bomb" aria-hidden="true"><div class="bomb-ring"><div class="bomb-face">00<span>:</span>35</div></div><div class="wire wire-red"></div><div class="wire wire-blue"></div></div></div>
+    <div class="join-grid"><div class="join-card"><div class="card-label">01 / 進入作戰</div><h2>我是玩家</h2><label for="joinCode">6 位教室代碼</label><input id="joinCode" inputmode="text" maxlength="6" placeholder="AB12CD" autocapitalize="characters"><label for="nickname">玩家暱稱</label><input id="nickname" maxlength="18" placeholder="例如：拆彈王"><button class="btn primary" id="joinBtn">加入拆彈小隊 ↗</button></div><div class="join-card host-card"><div class="card-label">CONTROL / TEACHER</div><h2>我是主持人</h2><p>投影大螢幕給全班觀看，開房後把代碼交給同學，開始多人同步競賽。</p><button class="btn secondary" id="createBtn">建立新的作戰教室 →</button></div></div>
+  </section>
+  <section id="game" class="hidden"><div class="game-head"><div><div class="eyebrow" id="roleTag">OPERATION ROOM</div><h2 id="gameTitle">作戰待命中</h2><div class="subtitle" id="gameSub">等待所有人加入</div></div><div class="code-box"><span>ROOM CODE</span><strong id="roomCode">------</strong><button class="small-btn" id="copyCode">複製</button></div></div>
+  <div class="game-grid"><div class="game-content"><div class="hud"><div class="hud-cell"><small>目前階段</small><b id="stageBadge">LOBBY</b></div><div class="hud-cell time-cell"><small>倒數計時</small><b id="countdown">--:--</b></div><div class="hud-cell"><small>線路狀態</small><b id="networkStatus">待命</b></div></div>
+  <div class="mission panel" id="missionPanel"><div class="mission-tag" id="missionTag">AWAITING START</div><h3 id="missionTitle">等待拆彈指令</h3><p class="mission-story" id="missionStory">告訴同學輸入右上方的 6 位代碼加入房間，準備在倒數時間內解決三次網路危機。</p><div id="networkDiagram" class="diagram"><svg viewBox="0 0 360 240" role="img" aria-label="三台交換器組成的三角形網路拓樸"><defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><path id="lineAB" d="M180 55 L75 192"/><path id="lineAC" d="M180 55 L285 192"/><path id="lineBC" d="M75 192 L285 192"/><g class="switch" transform="translate(180 49)"><rect x="-38" y="-23" width="76" height="44" rx="9"/><text text-anchor="middle" y="5">SW A</text></g><g class="switch" transform="translate(75 195)"><rect x="-38" y="-23" width="76" height="44" rx="9"/><text text-anchor="middle" y="5">SW B</text></g><g class="switch" transform="translate(285 195)"><rect x="-38" y="-23" width="76" height="44" rx="9"/><text text-anchor="middle" y="5">SW C</text></g><text class="link-label" x="99" y="104">A—B</text><text class="link-label" x="261" y="104">A—C</text><text class="link-label" x="180" y="185" text-anchor="middle">B—C</text></svg><div id="diagramCaption" class="diagram-caption">目前拓樸：三角形交換器網路</div></div><div id="questionArea" class="hidden"><h4 id="missionQuestion"></h4><div id="options" class="options"></div></div><div id="feedback" class="feedback hidden" aria-live="polite"></div></div>
+  <div class="action-strip" id="actionStrip"><button id="startBtn" class="btn primary hidden">⚡ 啟動拆彈競賽</button><button id="nextBtn" class="btn secondary hidden">下一階段 / 公布結果 →</button><button id="resetBtn" class="btn ghost hidden">↺ 重新開始同一房間</button><div id="helperText">請先加入教室</div></div>
+  </div><aside class="sidebar"><div class="leaderboard panel"><div class="aside-title"><span>🏆 即時排行榜</span><small id="peopleCount">0 人加入</small></div><div id="myScore" class="my-score hidden"></div><div id="playerList" class="player-list"><div class="empty">目前尚無玩家加入</div></div></div><div class="hint panel"><div class="aside-title">📡 作戰情報</div><p id="hintText">Layer 2 的廣播幀沒有像 IP TTL 那樣逐跳遞減的欄位。若網路形成轉送迴圈，可能造成廣播風暴。</p><small>※ 此遊戲是教學模型，不會傳送真實的異常廣播封包。</small></div></aside></div>
+  </section>
+</main><div id="toast" class="toast hidden" role="alert"></div><footer>NETWORK BOMB SQUAD <span>▸</span> Layer 2 Loop / RSTP / Storm Control <span>▸</span> EDUCATIONAL SIMULATION</footer>
+</body></html>
