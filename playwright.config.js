@@ -3,11 +3,11 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './tests/browser',
-  timeout: 180000,
+  timeout: 240000,
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL: process.env.BOMB_SQUAD_BASE_URL || 'http://127.0.0.1:3100',
     browserName: 'chromium',
     channel: 'chrome',
     headless: true,
@@ -15,9 +15,10 @@ module.exports = defineConfig({
     actionTimeout: 15000,
     navigationTimeout: 20000,
   },
-  webServer: {
+  webServer: process.env.BOMB_SQUAD_BASE_URL ? undefined : {
     command: 'node server.js',
-    url: 'http://127.0.0.1:3000/health',
-    reuseExistingServer: true,
+    url: 'http://127.0.0.1:3100/health',
+    env: { PORT: '3100' },
+    reuseExistingServer: false,
   },
 });

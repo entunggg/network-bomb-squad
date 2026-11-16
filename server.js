@@ -9,11 +9,12 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: false }, pingTimeout: 20000 });
 const PORT = Number(process.env.PORT || 3000);
+const gameClock = { now: () => Date.now() };
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
+app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size, revision: process.env.RENDER_GIT_COMMIT || null }));
 const rooms = new Map();
 const MAX_PLAYERS = 120;
-const PHASE_BREAK_MS = 7500;
+const PHASE_BREAK_MS = 15000;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const quiz = [
   {
@@ -64,33 +65,62 @@ function code() {
 function emitAck(ack, data) { if (typeof ack === 'function') ack(data); }
 function safeName(raw) { return String(raw || '').replace(/[<>\\\n\r\t]/g, '').trim().slice(0, 18); }
 function genToken() { return crypto.randomBytes(24).toString('hex'); }
+function isRevealed(r) { return r.phase === 'intermission' || r.phase === 'finished'; }
+function playerState(r, p) {
+  const answer = p.answers.get(r.round);
+  // Explicitly serialize a receipt until settlement; never spread a pending record.
+  return {
+    gameId: r.gameId, round: r.round,
+    answer: answer ? {
+      submitted: true, choice: answer.choice,
+      ...(isRevealed(r) && answer.settled ? {
+        correct: answer.correct, delta: answer.delta, explanation: quiz[r.round].explain,
+      } : {}),
+    } : null,
+  };
+}
 function roomSummary(r) {
   const current = quiz[r.round];
   return {
-    code: r.code, phase: r.phase, round: r.round, roundCount: quiz.length,
+    code: r.code, gameId: r.gameId, phase: r.phase, round: r.round, roundCount: quiz.length,
     stage: current?.stage || null, headline: current?.headline || null,
     story: current?.story || null, question: current?.question || null,
     options: current?.options || [], lesson: r.phase === 'intermission' || r.phase === 'finished' ? current?.lesson : null,
     correct: r.phase === 'intermission' || r.phase === 'finished' ? current?.correct : null,
     explain: r.phase === 'intermission' || r.phase === 'finished' ? current?.explain : null,
-    remainingMs: r.endsAt ? Math.max(0, r.endsAt - Date.now()) : 0,
+    remainingMs: r.endsAt ? Math.max(0, r.endsAt - gameClock.now()) : 0,
     endsAt: r.endsAt,
     duration: current?.duration || 0,
+    explanationDuration: PHASE_BREAK_MS / 1000,
     players: [...r.players.values()].map(p => ({ id: p.id, name: p.name, score: p.score, connected: !!p.socketId, answered: r.round >= 0 && p.answers.has(r.round), correct: r.round >= 0 && (r.phase === 'intermission' || r.phase === 'finished') ? p.answers.get(r.round)?.correct ?? null : null })).sort((a,b) => b.score - a.score || a.name.localeCompare(b.name, 'zh-Hant')),
     completed: r.completed,
   };
 }
 function update(r) {
-  r.touched = Date.now();
+  r.touched = gameClock.now();
   io.to(r.code).emit('room:update', roomSummary(r));
+  for (const p of r.players.values()) {
+    if (p.socketId) io.to(p.socketId).emit('player:state', playerState(r, p));
+  }
 }
 function startRound(r, i) {
-  r.round = i; r.phase = 'playing'; r.endsAt = Date.now() + quiz[i].duration * 1000;
+  r.round = i; r.phase = 'playing'; r.endsAt = gameClock.now() + quiz[i].duration * 1000;
   update(r);
 }
 function resolveRound(r) {
   if (r.phase !== 'playing') return;
-  r.phase = 'intermission'; r.endsAt = Date.now() + PHASE_BREAK_MS;
+  const q = quiz[r.round];
+  // Settle every submitted answer before publishing any scores or results.
+  for (const p of r.players.values()) {
+    const answer = p.answers.get(r.round);
+    if (!answer || answer.settled) continue;
+    const correct = answer.choice === q.correct;
+    const bonus = correct ? Math.floor(Math.max(0, answer.answerEndsAt - answer.submittedAt) / 1000) * 10 : 0;
+    const delta = correct ? 500 + bonus : -100;
+    p.score = Math.max(0, p.score + delta);
+    Object.assign(answer, { correct, delta, settled: true });
+  }
+  r.phase = 'intermission'; r.endsAt = gameClock.now() + PHASE_BREAK_MS;
   r.completed = Math.max(r.completed, r.round + 1);
   update(r);
 }
@@ -115,7 +145,7 @@ io.on('connection', socket => {
   socket.on('host:create', (_, ack) => {
     detachFromOldRoom(socket);
     const c = code(); const token = genToken();
-    const r = { code: c, hostToken: token, hostSocketId: socket.id, players: new Map(), round: -1, phase: 'lobby', endsAt: null, completed: 0, touched: Date.now() };
+    const r = { code: c, gameId: crypto.randomUUID(), hostToken: token, hostSocketId: socket.id, players: new Map(), round: -1, phase: 'lobby', endsAt: null, completed: 0, touched: gameClock.now() };
     rooms.set(c, r);
     socket.join(c); socket.data.code = c; socket.data.role = 'host';
     emitAck(ack, { ok: true, code: c, hostToken: token }); update(r);
@@ -145,11 +175,9 @@ io.on('connection', socket => {
     detachFromOldRoom(socket);
     if (player.socketId && player.socketId !== socket.id) io.sockets.sockets.get(player.socketId)?.disconnect(true);
     player.socketId = socket.id; socket.join(r.code); socket.data.code = r.code; socket.data.role = 'player'; socket.data.playerId = player.id;
-    const previousAnswer = player.answers.get(r.round);
     emitAck(ack, {
       ok: true, code: r.code, playerId: player.id, playerToken: player.token, name: player.name,
-      answerRound: r.round,
-      answer: previousAnswer ? { ...previousAnswer, explanation: quiz[r.round].explain } : null,
+      ...playerState(r, player),
     });
     update(r);
   });
@@ -171,6 +199,7 @@ io.on('connection', socket => {
   socket.on('host:reset', (_, ack) => {
     const r = rooms.get(socket.data.code);
     if (!r || r.hostSocketId !== socket.id || socket.data.role !== 'host') return emitAck(ack, {ok: false, error: '無主持權限'});
+    r.gameId = crypto.randomUUID();
     r.phase = 'lobby'; r.round = -1; r.endsAt = null; r.completed = 0;
     for(const p of r.players.values()) { p.score = 0; p.answers.clear(); }
     update(r); emitAck(ack, { ok:true });
@@ -178,19 +207,16 @@ io.on('connection', socket => {
   socket.on('player:answer', (data, ack) => {
     const r = rooms.get(socket.data.code);
     const p = r?.players.get(socket.data.playerId);
-    if (!r || !p || p.socketId !== socket.id || r.phase !== 'playing' || Date.now() >= r.endsAt) return emitAck(ack, {ok:false, error:'本關已結束，請等待下一關。'});
+    const submittedAt = gameClock.now();
+    if (!r || !p || p.socketId !== socket.id || r.phase !== 'playing' || submittedAt >= r.endsAt) return emitAck(ack, {ok:false, error:'本關已結束，請等待下一關。'});
+    if (data?.gameId !== r.gameId || data?.round !== r.round) return emitAck(ack, {ok:false, error:'關卡已更新，請依目前題目重新提交。'});
     if (p.answers.has(r.round)) return emitAck(ack, {ok:false, error:'本關只能拆一次線。'});
     const q = quiz[r.round];
     const picked = String(data?.choice || '');
     if (!q.options.some(x => x.id === picked)) return emitAck(ack, {ok:false, error:'選項不正確。'});
-    const correct = picked === q.correct;
-    const bonus = correct ? Math.floor(Math.max(0,r.endsAt-Date.now())/1000)*10 : 0;
-    const delta = correct ? 500 + bonus : -100;
-    p.score = Math.max(0, p.score + delta);
-    p.answers.set(r.round, { choice: picked, correct, delta });
-    emitAck(ack, {ok:true, correct, delta, answer:q.correct, explanation:q.explain});
+    p.answers.set(r.round, { choice: picked, submittedAt, answerEndsAt: r.endsAt });
+    emitAck(ack, {ok:true, submitted:true, gameId:r.gameId, round:r.round});
     update(r);
-    if ([...r.players.values()].filter(x => x.socketId).every(x => x.answers.has(r.round))) resolveRound(r);
   });
   socket.on('disconnect', () => {
     const r = rooms.get(socket.data.code);
@@ -202,8 +228,8 @@ io.on('connection', socket => {
     update(r);
   });
 });
-setInterval(() => {
-  const now = Date.now();
+function tickRooms() {
+  const now = gameClock.now();
   for(const [c, r] of rooms) {
     if(now-r.touched > 3 * 60 * 60 * 1000) { rooms.delete(c); continue; }
     if (r.endsAt && now >= r.endsAt) {
@@ -211,6 +237,7 @@ setInterval(() => {
       else if (r.phase === 'intermission') advance(r);
     }
   }
-}, 250).unref();
+}
+setInterval(tickRooms, 250).unref();
 if (require.main === module) server.listen(PORT, '0.0.0.0', () => console.log(`Bomb Squad http://localhost:${PORT}`));
-module.exports = { app, server, quiz, rooms };
+module.exports = { app, server, quiz, rooms, tickRooms, gameClock };
